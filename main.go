@@ -96,15 +96,31 @@ func (w weatherUnderground) temperature(city string) (float64, error) {
 type multiWeatherMapProvider []weatherProvider
 
 func (w multiWeatherMapProvider) temperature(city string) (float64, error) {
-    sum := 0.0
+    temps := make(chan float64, len(w))
+    errs := make(chan error, len(w))
 
     for _, provider := range w {
-        k, err := provider.temperature(city)
-        if err != nil {
-            return 0, err
-        }
+        go func(p weatherProvider) {
+            begin := time.Now()
+            k, err := p.temperature(city)
+            if err != nil {
+                errs <- err
+                return
+            }
+            temps <- k
+            fmt.Println("provider took",time.Since(begin).String())
+        }(provider)
+    }
 
-        sum += k
+    sum := 0.0
+
+    for i := 0; i < len(w); i++ {
+        select {
+            case temp := <-temps:
+                sum += temp
+            case err := <-errs:
+                return 0, err
+        }
     }
 
     return sum / float64(len(w)), nil
